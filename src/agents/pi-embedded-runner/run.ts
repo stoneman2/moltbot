@@ -293,6 +293,8 @@ export async function runEmbeddedPiAgent(
       }
 
       let overflowCompactionAttempted = false;
+      let transientRetryCount = 0;
+      const MAX_TRANSIENT_RETRIES = 3;
       try {
         while (true) {
           attemptedThinking.add(thinkLevel);
@@ -508,6 +510,28 @@ export async function runEmbeddedPiAgent(
                 status: resolveFailoverStatus(promptFailoverReason ?? "unknown"),
               });
             }
+            
+            // Retry transient errors (empty responses, temporary failures) up to MAX_TRANSIENT_RETRIES
+            const isEmptyResponse = errorText.includes("empty response");
+            const isRetryableError = isEmptyResponse || /temporary|transient|unavailable/i.test(errorText);
+            
+            if (isRetryableError && transientRetryCount < MAX_TRANSIENT_RETRIES) {
+              transientRetryCount++;
+              log.warn(
+                `Transient error detected (attempt ${transientRetryCount}/${MAX_TRANSIENT_RETRIES}): ${errorText.slice(0, 100)} - retrying ${provider}/${modelId}`,
+              );
+              // Brief backoff before retry (100ms * attempt number)
+              await new Promise(resolve => setTimeout(resolve, 100 * transientRetryCount));
+              continue;
+            }
+            
+            // All retries exhausted - log and prepare user-facing error
+            if (transientRetryCount > 0) {
+              log.error(
+                `All ${MAX_TRANSIENT_RETRIES} retry attempts failed for ${provider}/${modelId}: ${errorText}`,
+              );
+            }
+            
             throw promptError;
           }
 
@@ -609,6 +633,9 @@ export async function runEmbeddedPiAgent(
               });
             }
           }
+
+          // Success - reset transient retry counter
+          transientRetryCount = 0;
 
           const usage = normalizeUsage(lastAssistant?.usage as UsageLike);
           const agentMeta: EmbeddedPiAgentMeta = {

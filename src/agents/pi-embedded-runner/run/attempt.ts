@@ -844,6 +844,24 @@ export async function runEmbeddedAttempt(
         .reverse()
         .find((m) => (m as AgentMessage)?.role === "assistant") as AssistantMessage | undefined;
 
+      // Detect empty assistant responses (silent failures from providers like Gemini)
+      // and treat them as errors to trigger fallback
+      if (lastAssistant && !promptError && !aborted) {
+        const hasContent = typeof lastAssistant.content === "string"
+          ? lastAssistant.content.trim().length > 0
+          : Array.isArray(lastAssistant.content) && lastAssistant.content.length > 0;
+        const hasToolCalls = Array.isArray(lastAssistant.toolCalls) && lastAssistant.toolCalls.length > 0;
+        
+        if (!hasContent && !hasToolCalls) {
+          log.warn(
+            `Empty assistant response detected (silent provider failure): runId=${params.runId} provider=${params.provider} model=${params.modelId}`,
+          );
+          promptError = new Error(
+            `Model returned empty response (likely silent safety filter block or provider error)`,
+          );
+        }
+      }
+
       const toolMetasNormalized = toolMetas
         .filter(
           (entry): entry is { toolName: string; meta?: string } =>

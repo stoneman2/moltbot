@@ -2,6 +2,7 @@ import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { stripReasoningTagsFromText } from "../shared/text/reasoning-tags.js";
 import { sanitizeUserFacingText } from "./pi-embedded-helpers.js";
 import { formatToolDetail, resolveToolDisplay } from "./tool-display.js";
+import { log } from "./pi-embedded-runner/logger.js";
 
 /**
  * Strip malformed Minimax tool invocations that leak into text content.
@@ -167,6 +168,14 @@ export function stripDowngradedToolCallText(text: string): string {
  * that slip through other filtering mechanisms.
  */
 export function stripThinkingTagsFromText(text: string): string {
+  // Log reasoning content to console before stripping (for debugging)
+  const thinkMatch = text.match(/<\s*think\b[^>]*>([\s\S]*?)<\s*\/\s*think\s*>/i);
+  if (thinkMatch && thinkMatch[1]) {
+    const reasoning = thinkMatch[1].trim();
+    if (reasoning.length > 0) {
+      log.debug(`[REASONING] ${reasoning.slice(0, 500)}${reasoning.length > 500 ? '...' : ''}`);
+    }
+  }
   return stripReasoningTagsFromText(text, { mode: "strict", trim: "both" });
 }
 
